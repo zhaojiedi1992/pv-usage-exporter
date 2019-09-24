@@ -8,7 +8,7 @@ from werkzeug.wsgi import DispatcherMiddleware
 from wsgiref.simple_server import make_server
 import time
 from prometheus_client.core import REGISTRY
-from collector import PersistentVolumeUsageCollector
+from collector import DtsStatusCollector
 import os ,sys
 sys.path.append(os.path.dirname(__file__))
 
@@ -23,7 +23,7 @@ def create_app():
 
 if __name__ == "__main__":
 
-    collector = PersistentVolumeUsageCollector()
+    collector = DtsStatusCollector()
     REGISTRY.register(collector)
     app = create_app()
     httpd = make_server('', 20211, app)

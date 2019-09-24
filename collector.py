@@ -7,69 +7,85 @@ import requests
 import json
 import jmespath
 
+from aliyunsdkdts.request.v20180801.DescribeSynchronizationJobsRequest import DescribeSynchronizationJobsRequest
+from aliyunsdkdts.request.v20180801.DescribeSynchronizationJobStatusRequest import \
+    DescribeSynchronizationJobStatusRequest
 
-class PersistentVolumeUsageCollector():
+from aliyunsdkcore.client import AcsClient
+from aliyunsdkcore.acs_exception.exceptions import ClientException
+from aliyunsdkcore.acs_exception.exceptions import ServerException
+
+
+class DtsStatusCollector():
     def __init__(self):
-        self.a=1
-        self.b=2
+        self.client = AcsClient('LTAI4Fp8TwZaBvxqQQFHZp2a', '4MWUPcCTQwT9LCnT1XCeacpHHjLgLS', 'cn-hangzhou')
+
     def format_metric_name(self):
-        return 'custom_pv_'
+        return 'custom_dts_status_'
 
-    def get_nodes_instance(self):
-        promethus = Prometheus()
-        query_result = json.loads(promethus.query(metric="kubelet_running_pod_count"))
-        instances = jmespath.search('data.result[].metric.instance', query_result)
-        instances = list(set(instances))
+    def pager_generator(self, req, page_size, page_num, func):
+        req.set_PageSize(page_size)
+        while True:
+            req.set_PageNum(page_num)
+            resp = self.client.do_action_with_exception(req)
+            data = json.loads(resp)
+            instances = func(data)
+            for instance in instances:
+                yield instance
+            if len(instances) < page_size:
+                break
+            page_num += 1
 
-        return instances
-        #return ["172.16.21.198:10255"]
+    def get_dts_list(self):
+        req = DescribeSynchronizationJobsRequest()
+        dts_list = list(self.pager_generator(req, page_num=1, page_size=100, func=(
+            lambda data: jmespath.search("SynchronizationInstances[].SynchronizationJobId", data))))
+        return dts_list
 
-    def get_volume_info(self, instance):
-        url = "http://{0}/stats/summary".format(instance)
-        req = requests.get(url)
-        if req.status_code == 200:
-            res_json = req.json()
-
-            sub_metric_items = [
-                "availableBytes",
-                "capacityBytes",
-                "usedBytes",
-                "inodesFree",
-                "inodes",
-                "inodesUsed"
-            ]
-            for sub_metric in sub_metric_items:
-                for pod in res_json["pods"]:
-                    if not "volume" in pod :
-                        continue
-                    pod_volumes = pod["volume"]
-                    pod_pod_ref = pod["podRef"]
-                    for volume in pod_volumes :
-                        kv = {
-                            "instance": instance,
-                            "namespace": pod_pod_ref["namespace"],
-                            "pod": pod_pod_ref["name"],
-                            "name": volume["name"]
-                        }
-                        gauge = GaugeMetricFamily(self.format_metric_name() + sub_metric, '',labels=list(kv.keys()))
-                        gauge.add_metric(labels=list(kv.values()), value=volume[sub_metric])
-                        yield  gauge
-                        #yield self.metric_up_gauge(self.format_metric_name() + sub_metric, True)
+    def get_dts_status(self, dts):
+        request = DescribeSynchronizationJobStatusRequest()
+        request.set_accept_format('json')
+        request.set_SynchronizationJobId(dts)
+        resp = self.client.do_action_with_exception(request)
+        data = json.loads(resp)
+        # result = jmespath.search("Status", data)
+        return data
 
     def collect(self):
-        print("abc")
-        instances = self.get_nodes_instance()
-        for instance in instances:
-            yield from  self.get_volume_info(instance)
+        dts_list = self.get_dts_list()
+        kv = {
+            "name": "SynchronizationJobName",
+            "status": "Status",
+            "jid": "SynchronizationJobId"
+        }
+        metrics = {
+             "delay": "Delay",
+             "flow": "Performance.FLOW",
+             "rps": "Performance.RPS",
+             "initpercent": "DataInitializationStatus.Percent"
+        }
 
-    def metric_up_gauge(resource: str, succeeded=True):
+        for dts in dts_list:
+            data = self.get_dts_status(dts)
+            for metric_key, metric_value in metrics.items():
+                gauge = GaugeMetricFamily(self.format_metric_name() + metric_key, '', labels=list(kv.keys()))
+                labels = [jmespath.search(v, data) for k, v in kv.items()]
+                value = jmespath.search(metric_value,data)
+                if value is not None :
+                    value = "".join(filter(str.isdigit,value))
+                    gauge.add_metric(labels=labels, value=value )
+                else:
+                    yield self.metric_up_gauge(self.format_metric_name() + metric_key)
+                yield gauge
+
+    def metric_up_gauge(self,resource: str, succeeded=True):
         metric_name = resource + '_up'
         description = 'Did the {} fetch succeed.'.format(resource)
         return GaugeMetricFamily(metric_name, description, value=int(succeeded))
 
 
 if __name__ == "__main__":
-    pv = PersistentVolumeUsageCollector()
-    print(pv.collect)
-    a=pv.collect()
+    dts = DtsStatusCollector()
+    print(dts.collect)
+    a = dts.collect()
     print(a)
