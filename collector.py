@@ -18,7 +18,7 @@ from aliyunsdkcore.acs_exception.exceptions import ServerException
 
 class DtsStatusCollector():
     def __init__(self):
-        self.client = AcsClient('LTAI4Fp8TwZaBvxqQQFHZp2a', '4MWUPcCTQwT9LCnT1XCeacpHHjLgLS', 'cn-hangzhou')
+        self.client = AcsClient('xx', 'xx', 'cn-hangzhou')
 
     def format_metric_name(self):
         return 'custom_dts_status_'
