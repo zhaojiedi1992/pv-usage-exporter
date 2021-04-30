@@ -12,5 +12,5 @@ MarkupSafe==1.1.1
 prometheus-client==0.7.1
 prometheus-http-client==1.0.0
 requests==2.22.0
-urllib3==1.25.3
+urllib3==1.25.8
 Werkzeug==0.15.6
